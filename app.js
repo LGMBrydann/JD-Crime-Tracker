@@ -53,7 +53,7 @@ async function logAction() {
   logBtn.textContent = "Charging...";
 
   try {
-    const res = await fetch("https://groq.com", {
+    const res = await fetch("https://api.groq.com", {
   method: "POST",
   headers: {
     "Authorization": "Bearer " + key,
