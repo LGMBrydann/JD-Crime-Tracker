@@ -136,7 +136,7 @@ Rules:
         const data = await res.json();
         if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`);
 
-        const content = data.choices[0]?.message?.content;
+        const content = data.choices && data.choices[0] && data.choices[0].message.content;
         if (!content) throw new Error("Empty response from Groq.");
 
         const parsed = JSON.parse(content);
