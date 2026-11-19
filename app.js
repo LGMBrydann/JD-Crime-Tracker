@@ -53,23 +53,22 @@ async function logAction() {
   logBtn.textContent = "Charging...";
 
   try {
-    const res = await fetch("https://api.groq.com/openai/v1", {
-      method: "POST",
-      mode: "cors",
-      headers: {
-        "Authorization": "Bearer " + key,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        response_format: { type: "json_object" },
-        temperature: 0.2,
-        messages: [
-          { role: "system", content: buildSystemPrompt(jurisdiction) },
-          { role: "user", content: text }
-        ]
-      })
-    });
+    const res = await fetch("https://groq.com", {
+  method: "POST",
+  headers: {
+    "Authorization": "Bearer " + key,
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    model: "llama-3.3-70b-versatile",
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: buildSystemPrompt(jurisdiction) },
+      { role: "user", content: text }
+    ]
+  })
+});
+
 
     const data = await res.json();
     if (!res.ok) {
