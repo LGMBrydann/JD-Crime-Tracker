@@ -36,21 +36,21 @@
   <div class="sub">Powered by GroqCloud • Prosecuting GTA 6 chaos under real criminal statutes.</div>
 
   <div class="top-controls">
-    <select id="jurisdiction" onchange="saveJurisdiction()">
+    <select id="jurisdiction">
       <option value="Texas (Texas Penal Code)">Jurisdiction: Texas (Home State)</option>
       <option value="Florida / State of Leonida (Florida Statutes)">Jurisdiction: Leonida / Florida (In-Game)</option>
     </select>
     <div class="key-bar">
       <input id="apiKey" type="password" placeholder="Paste Groq API Key (gsk_...) — stored locally" />
-      <button class="sec" onclick="saveKey()">Save Key</button>
+      <button id="saveKeyBtn" type="button" class="sec">Save Key</button>
     </div>
   </div>
 
   <div class="input-row">
     <input id="actionInput" type="text" placeholder="e.g., stole a cop car, ran over 3 pedestrians, and robbed a liquor store..." />
-    <button id="logBtn" onclick="logAction()">Log Crime</button>
-    <button id="copyBtn" class="copy" onclick="copyForChat()">Copy for Chat</button>
-    <button class="sec" onclick="resetSheet()">Reset</button>
+    <button id="logBtn" type="button">Log Crime</button>
+    <button id="copyBtn" type="button" class="copy">Copy for Chat</button>
+    <button id="resetBtn" type="button" class="sec">Reset</button>
   </div>
   <div id="errBox" class="err"></div>
 
@@ -62,163 +62,6 @@
 
   <div id="logList"></div>
 
-  <script>
-    let log = JSON.parse(localStorage.getItem("gta6_groq_rap_sheet") || "[]");
-    document.getElementById("apiKey").value = localStorage.getItem("groq_api_key") || "";
-    const savedJur = localStorage.getItem("gta6_jurisdiction");
-    if (savedJur) document.getElementById("jurisdiction").value = savedJur;
-
-    function saveKey() {
-      localStorage.setItem("groq_api_key", document.getElementById("apiKey").value.trim());
-      alert("Groq API key saved locally in this browser.");
-    }
-
-    function saveJurisdiction() {
-      localStorage.setItem("gta6_jurisdiction", document.getElementById("jurisdiction").value);
-    }
-
-    function buildSystemPrompt(jurisdiction) {
-      return [
-        "You are a prosecutor grading actions committed by Jordan in GTA 6 under " + jurisdiction + ".",
-        "Convert the user's description into realistic criminal charges from " + jurisdiction + ".",
-        "Return ONLY valid JSON matching this exact schema:",
-        '{"charges":[{"charge":"Official Charge Name","statute":"Exact Code Citation","fine":10000,"years":20,"capital":false}]}',
-        "Rules:",
-        "- Break multi-part actions into individual criminal counts.",
-        "- fine must be a number in USD (0 if no fine).",
-        "- years must be a number representing max prison/jail years (0 if no jail time; 99 for life).",
-        "- capital must be true ONLY for capital felony offenses eligible for maximum capital punishment under " + jurisdiction + "."
-      ].join("\n");
-    }
-
-    async function logAction() {
-      const key = document.getElementById("apiKey").value.trim();
-      const input = document.getElementById("actionInput");
-      const text = input.value.trim();
-      const jurisdiction = document.getElementById("jurisdiction").value;
-      const errBox = document.getElementById("errBox");
-      const btn = document.getElementById("logBtn");
-
-      errBox.textContent = "";
-      if (!key) {
-        errBox.textContent = "Please paste your Groq API key first.";
-        return;
-      }
-      if (!text) return;
-
-      btn.disabled = true;
-      btn.textContent = "Charging...";
-
-      try {
-        const res = await fetch("https://groq.com", {
-          method: "POST",
-          mode: "cors",
-          headers: {
-            "Authorization": "Bearer " + key,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
-            response_format: { type: "json_object" },
-            temperature: 0.2,
-            messages: [
-              { role: "system", content: buildSystemPrompt(jurisdiction) },
-              { role: "user", content: text }
-            ]
-          })
-        });
-
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error((data.error && data.error.message) || ("HTTP " + res.status));
-        }
-
-        const firstChoice = data.choices && data.choices.shift();
-        const content = firstChoice && firstChoice.message && firstChoice.message.content;
-        if (!content) {
-          throw new Error("Empty response from Groq.");
-        }
-
-        const parsed = JSON.parse(content);
-        const tag = jurisdiction.startsWith("Texas") ? "TEXAS" : "LEONIDA";
-        (parsed.charges || []).forEach(function (c) {
-          log.unshift(Object.assign({ raw: text, tag: tag }, c));
-        });
-        input.value = "";
-        saveAndRender();
-      } catch (err) {
-        errBox.textContent = "Error: " + err.message;
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "Log Crime";
-      }
-    }
-
-    function copyForChat() {
-      const btn = document.getElementById("copyBtn");
-      if (!log.length) {
-        alert("Log at least one crime first!");
-        return;
-      }
-      const fines = log.reduce(function (sum, c) { return sum + (Number(c.fine) || 0); }, 0);
-      const years = log.reduce(function (sum, c) { return sum + (Number(c.years) || 0); }, 0);
-      const hasCapital = log.some(function (c) { return c.capital === true; });
-      const latest = log.at(0);
-
-      const summary = "🚨 JORDAN'S RAP SHEET (" + log.length + " charges) | Latest: " + latest.charge + " (" + latest.statute + ") | Total Fines: $" + fines.toLocaleString() + " | Prison: " + years.toFixed(1) + " yrs" + (hasCapital ? " | ⚖️ CAPITAL FELONY" : "");
-
-      navigator.clipboard.writeText(summary).then(function () {
-        const old = btn.textContent;
-        btn.textContent = "Copied!";
-        setTimeout(function () { btn.textContent = old; }, 1500);
-      });
-    }
-
-    function deleteCharge(index) {
-      log.splice(index, 1);
-      saveAndRender();
-    }
-
-    function resetSheet() {
-      if (confirm("Clear Jordan's entire rap sheet?")) {
-        log = [];
-        saveAndRender();
-      }
-    }
-
-    function saveAndRender() {
-      localStorage.setItem("gta6_groq_rap_sheet", JSON.stringify(log));
-      const fines = log.reduce(function (sum, c) { return sum + (Number(c.fine) || 0); }, 0);
-      const years = log.reduce(function (sum, c) { return sum + (Number(c.years) || 0); }, 0);
-      const hasCapital = log.some(function (c) { return c.capital === true; });
-
-      document.getElementById("totalFines").textContent = "$" + fines.toLocaleString();
-      document.getElementById("totalJail").textContent = years.toFixed(1) + " yrs";
-      document.getElementById("sentenceStatus").textContent = hasCapital ? "CAPITAL SENTENCE" : (years > 0 ? "Prison" : "Free");
-
-      document.getElementById("logList").innerHTML = log.map(function (item, idx) {
-
-const capBadge = item.capital ? 'CAPITAL FELONY' : '';
-const jailText = item.years > 0 ? (item.years + " yrs jail") : "No jail";
-return [
-'',
-'  ',
-'    ' + item.charge + '',
-'    "' + item.raw + '"',
-'    ' + (item.tag || "TEXAS") + '',
-'    ' + (item.statute || "PENAL CODE") + '',
-'  ',
-'  ',
-'    $' + Number(item.fine).toLocaleString() + '',
-'    ' + jailText + '',
-'    ' + capBadge,
-'    Remove',
-'  ',
-''
-].join("\n");
-}).join("");
-}
-document.getElementById("actionInput").addEventListener("keydown", function (e) {
-if (e.key === "Enter") logAction();
-});
-saveAndRender();
+  <script src="app.js"></script>
+</body>
+</html>
