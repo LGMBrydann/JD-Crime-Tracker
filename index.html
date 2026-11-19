@@ -198,8 +198,23 @@ Rules:
       document.getElementById("totalJail").textContent = `${years.toFixed(1)} yrs`;
       document.getElementById("deathStatus").textContent = hasDeath ? "DEATH SENTENCE" : (years > 0 ? "Prison" : "Free");
 
-document.getElementById("logList").innerHTML = log.map((item, idx) => <div class="charge-item"> <div> <strong>${item.charge}</strong> <div style="font-size:0.85rem; color:#94a3b8;">"${item.raw}"</div> <span class="badge">${item.tag || "TEXAS"}</span> <span class="badge">${item.statute || "PENAL CODE"}</span> </div> <div style="text-align:right; white-space:nowrap;"> <div><strong>$${Number(item.fine).toLocaleString()}</strong></div> <div style="font-size:0.85rem; color:#cbd5e1;">${item.years > 0 ? item.years + " yrs jail" : "No jail"}</div> ${item.death ?DEATH PENALTY: ""} <button class="del" onclick="deleteCharge(${idx})">Remove</button> </div> </div>).join("");
-}
+      document.getElementById("logList").innerHTML = log.map((item, idx) => `
+        <div class="charge-item">
+          <div>
+            <strong>${item.charge}</strong>
+            <div style="font-size:0.85rem; color:#94a3b8;">"${item.raw}"</div>
+            <span class="badge">${item.tag || "TEXAS"}</span>
+            <span class="badge">${item.statute || "PENAL CODE"}</span>
+          </div>
+          <div style="text-align:right; white-space:nowrap;">
+            <div><strong>$${Number(item.fine).toLocaleString()}</strong></div>
+            <div style="font-size:0.85rem; color:#cbd5e1;">${item.years > 0 ? item.years + " yrs jail" : "No jail"}</div>
+            ${item.capital ? `<div><span class="badge capital">CAPITAL FELONY</span></div>` : ""}
+            <button class="del" onclick="deleteCharge(${idx})">Remove</button>
+          </div>
+        </div>
+      `).join("");
+
 document.getElementById("actionInput").addEventListener("keydown", e => { if (e.key === "Enter") logAction(); });
 saveAndRender();
 </script>
