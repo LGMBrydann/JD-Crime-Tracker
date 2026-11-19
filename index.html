@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JD Crime Tracker</title>
+  <style>
+    :root { --bg: #0f111a; --card: #1a1d2d; --pink: #ff4fd8; --cyan: #00f0ff; --red: #ff3b3b; --text: #f1f5f9; }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); max-width: 760px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { color: var(--pink); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 0.25rem; }
+    .sub { color: #94a3b8; margin-bottom: 1.25rem; font-size: 0.9rem; }
+    .top-controls { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    .key-bar { display: flex; gap: 0.5rem; flex: 1; min-width: 280px; background: #141724; padding: 0.5rem; border-radius: 8px; border: 1px solid #262b40; }
+    select { padding: 0.7rem 0.9rem; border-radius: 8px; background: var(--card); color: var(--cyan); border: 1px solid #334155; font-weight: 700; cursor: pointer; }
+    .input-row { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; }
+    input { flex: 1; padding: 0.7rem 0.9rem; border-radius: 8px; border: 1px solid #334155; background: var(--card); color: white; font-size: 0.95rem; }
+    button { padding: 0.7rem 1.2rem; border: none; border-radius: 8px; background: var(--pink); color: #0f111a; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    button.sec { background: #334155; color: #cbd5e1; }
+    button.del { background: transparent; color: #94a3b8; border: 1px solid #334155; padding: 0.3rem 0.6rem; font-size: 0.75rem; margin-top: 0.35rem; }
+    button.del:hover { background: var(--red); color: white; border-color: var(--red); }
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.5rem; }
+    .stat-box { background: var(--card); padding: 1rem; border-radius: 10px; border-left: 4px solid var(--cyan); }
+    .stat-box.danger { border-left-color: var(--red); }
+    .stat-label { font-size: 0.75rem; text-transform: uppercase; color: #94a3b8; }
+    .stat-val { font-size: 1.4rem; font-weight: 800; margin-top: 0.25rem; }
+    .charge-item { background: var(--card); padding: 0.9rem 1rem; border-radius: 8px; margin-bottom: 0.6rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+    .badge { font-size: 0.72rem; padding: 0.2rem 0.5rem; border-radius: 4px; background: #334155; color: var(--cyan); display: inline-block; margin-top: 0.3rem; margin-right: 0.3rem; }
+    .badge.death { background: var(--red); color: white; font-weight: bold; }
+    .err { color: #ff6b6b; font-size: 0.85rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>Jordan's Rap Sheet</h1>
+  <div class="sub">Powered by GroqCloud • Prosecuting GTA 6 chaos under real criminal statutes.</div>
+
+  <div class="top-controls">
+    <select id="jurisdiction" onchange="saveJurisdiction()">
+      <option value="Texas (Texas Penal Code)">Jurisdiction: Texas (Home State)</option>
+      <option value="Florida / State of Leonida (Florida Statutes)">Jurisdiction: Leonida / Florida (In-Game)</option>
+    </select>
+    <div class="key-bar">
+      <input id="apiKey" type="password" placeholder="Paste Groq API Key (gsk_...) — stored locally" />
+      <button class="sec" onclick="saveKey()">Save Key</button>
+    </div>
+  </div>
+
+  <div class="input-row">
+    <input id="actionInput" type="text" placeholder="e.g., stole a cop car, ran over 3 pedestrians, and robbed a liquor store..." />
+    <button id="logBtn" onclick="logAction()">Log Crime</button>
+    <button class="sec" onclick="resetSheet()">Reset</button>
+  </div>
+  <div id="errBox" class="err"></div>
+
+  <div class="stats">
+    <div class="stat-box"><div class="stat-label">Total Fines</div><div class="stat-val" id="totalFines">$0</div></div>
+    <div class="stat-box"><div class="stat-label">Prison Time</div><div class="stat-val" id="totalJail">0 yrs</div></div>
+    <div class="stat-box danger"><div class="stat-label">Sentence Status</div><div class="stat-val" id="deathStatus">Free</div></div>
+  </div>
+
+  <div id="logList"></div>
+
+  <script>
+    let log = JSON.parse(localStorage.getItem("gta6_groq_rap_sheet") || "[]");
+    document.getElementById("apiKey").value = localStorage.getItem("groq_api_key") || "";
+    const savedJur = localStorage.getItem("gta6_jurisdiction");
+    if (savedJur) document.getElementById("jurisdiction").value = savedJur;
+
+    function saveKey() {
+      localStorage.setItem("groq_api_key", document.getElementById("apiKey").value.trim());
+      alert("Groq API key saved locally in this browser.");
+    }
+
+    function saveJurisdiction() {
+      localStorage.setItem("gta6_jurisdiction", document.getElementById("jurisdiction").value);
+    }
+
+    function buildSystemPrompt(jurisdiction) {
+      return `You are a prosecutor grading actions committed by a streamer in GTA 6 under ${jurisdiction}.
+Convert the user's description into realistic criminal charges from ${jurisdiction}.
+Return ONLY valid JSON matching this exact schema:
+{
+  "charges": [
+    {
+      "charge": "Official Charge Name (or 'No Crime Committed' if completely legal)",
+      "statute": "Exact Code Citation e.g. Tex. Penal Code § 19.03 or Fla. Stat. § 782.04 (or 'N/A')",
+      "fine": 10000,
+      "years": 20,
+      "death": false
+    }
+  ]
+}
+Rules:
+- Break multi-part actions into individual criminal counts (e.g. stealing a car + fleeing police = 2 separate charges).
+- fine must be a number in USD (0 if no fine).
+- years must be a number representing max prison/jail years (use decimals like 0.5 for 180 days; 0 if no jail time; 99 for life).
+- death must be true ONLY for capital offenses eligible for the death penalty under ${jurisdiction} (such as Capital Murder of a peace officer, murder during a robbery/kidnapping/arson, or multiple murders).`;
+    }
+
+    async function logAction() {
+      const key = document.getElementById("apiKey").value.trim();
+      const input = document.getElementById("actionInput");
+      const text = input.value.trim();
+      const jurisdiction = document.getElementById("jurisdiction").value;
+      const errBox = document.getElementById("errBox");
+      const btn = document.getElementById("logBtn");
+
+      errBox.textContent = "";
+      if (!key) { errBox.textContent = "Please paste your Groq API key first."; return; }
+      if (!text) return;
+
+      btn.disabled = true;
+      btn.textContent = "Charging...";
+
+      try {
+        const res = await fetch("https://groq.com", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${key}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "llama-3.3-70b-versatile",
+            response_format: { type: "json_object" },
+            temperature: 0.2,
+            messages: [
+              { role: "system", content: buildSystemPrompt(jurisdiction) },
+              { role: "user", content: text }
+            ]
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || "Groq API request failed");
+
+        const parsed = JSON.parse(data.choices[0].message.content);
+        const tag = jurisdiction.startsWith("Texas") ? "TEXAS" : "LEONIDA";
+        (parsed.charges || []).forEach(c => log.unshift({ raw: text, tag, ...c }));
+        input.value = "";
+        saveAndRender();
+      } catch (err) {
+        errBox.textContent = `Error: ${err.message}`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Log Crime";
+      }
+    }
+
+    function deleteCharge(index) {
+      log.splice(index, 1);
+      saveAndRender();
+    }
+
+    function resetSheet() {
+      if (confirm("Clear the entire rap sheet?")) {
+        log = [];
+        saveAndRender();
+      }
+    }
+
+    function saveAndRender() {
+      localStorage.setItem("gta6_groq_rap_sheet", JSON.stringify(log));
+      const fines = log.reduce((sum, c) => sum + (Number(c.fine) || 0), 0);
+      const years = log.reduce((sum, c) => sum + (Number(c.years) || 0), 0);
+      const hasDeath = log.some(c => c.death === true);
+
+      document.getElementById("totalFines").textContent = `$${fines.toLocaleString()}`;
+      document.getElementById("totalJail").textContent = `${years.toFixed(1)} yrs`;
+      document.getElementById("deathStatus").textContent = hasDeath ? "DEATH SENTENCE" : (years > 0 ? "Prison" : "Free");
+
+      document.getElementById("logList").innerHTML = log.map((item, idx) => `
+        <div class="charge-item">
+          <div>
+            <strong>${item.charge}</strong>
+            <div style="font-size:0.85rem; color:#94a3b8;">"${item.raw}"</div>
+            <span class="badge">${item.tag || "TX"}</span>
+            <span class="badge">${item.statute || "PENAL CODE"}</span>
+          </div>
+          <div style="text-align:right; white-space:nowrap;">
+            <div><strong>$${Number(item.fine).toLocaleString()}</strong></div>
+            <div style="font-size:0.85rem; color:#cbd5e1;">${item.years > 0 ? item.years + " yrs jail" : "No jail"}</div>
+            ${item.death ? `<div><span class="badge death">DEATH PENALTY</span></div>` : ""}
+            <button class="del" onclick="deleteCharge(${idx})">Remove</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    document.getElementById("actionInput").addEventListener("keydown", e => { if (e.key === "Enter") logAction(); });
+    saveAndRender();
+  </script>
+</body>
+</html>
