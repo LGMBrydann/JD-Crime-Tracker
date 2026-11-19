@@ -12,11 +12,12 @@
     .top-controls { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
     .key-bar { display: flex; gap: 0.5rem; flex: 1; min-width: 280px; background: #141724; padding: 0.5rem; border-radius: 8px; border: 1px solid #262b40; }
     select { padding: 0.7rem 0.9rem; border-radius: 8px; background: var(--card); color: var(--cyan); border: 1px solid #334155; font-weight: 700; cursor: pointer; }
-    .input-row { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; }
-    input { flex: 1; padding: 0.7rem 0.9rem; border-radius: 8px; border: 1px solid #334155; background: var(--card); color: white; font-size: 0.95rem; }
-    button { padding: 0.7rem 1.2rem; border: none; border-radius: 8px; background: var(--pink); color: #0f111a; font-weight: 700; cursor: pointer; }
+    .input-row { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+    input { flex: 1; min-width: 220px; padding: 0.7rem 0.9rem; border-radius: 8px; border: 1px solid #334155; background: var(--card); color: white; font-size: 0.95rem; }
+    button { padding: 0.7rem 1.1rem; border: none; border-radius: 8px; background: var(--pink); color: #0f111a; font-weight: 700; cursor: pointer; }
     button:disabled { opacity: 0.5; cursor: wait; }
     button.sec { background: #334155; color: #cbd5e1; }
+    button.copy { background: var(--cyan); color: #0f111a; }
     button.del { background: transparent; color: #94a3b8; border: 1px solid #334155; padding: 0.3rem 0.6rem; font-size: 0.75rem; margin-top: 0.35rem; }
     button.del:hover { background: var(--red); color: white; border-color: var(--red); }
     .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-bottom: 1.5rem; }
@@ -27,7 +28,7 @@
     .charge-item { background: var(--card); padding: 0.9rem 1rem; border-radius: 8px; margin-bottom: 0.6rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
     .badge { font-size: 0.72rem; padding: 0.2rem 0.5rem; border-radius: 4px; background: #334155; color: var(--cyan); display: inline-block; margin-top: 0.3rem; margin-right: 0.3rem; }
     .badge.death { background: var(--red); color: white; font-weight: bold; }
-    .err { color: #ff6b6b; font-size: 0.85rem; margin-bottom: 1rem; }
+    .err { color: #ff6b6b; font-size: 0.85rem; margin-bottom: 1rem; line-height: 1.4; }
   </style>
 </head>
 <body>
@@ -48,6 +49,7 @@
   <div class="input-row">
     <input id="actionInput" type="text" placeholder="e.g., stole a cop car, ran over 3 pedestrians, and robbed a liquor store..." />
     <button id="logBtn" onclick="logAction()">Log Crime</button>
+    <button id="copyBtn" class="copy" onclick="copyForChat()">Copy for Chat</button>
     <button class="sec" onclick="resetSheet()">Reset</button>
   </div>
   <div id="errBox" class="err"></div>
@@ -76,7 +78,7 @@
     }
 
     function buildSystemPrompt(jurisdiction) {
-      return `You are a prosecutor grading actions committed by a streamer in GTA 6 under ${jurisdiction}.
+      return `You are a prosecutor grading actions committed by Jordan in GTA 6 under ${jurisdiction}.
 Convert the user's description into realistic criminal charges from ${jurisdiction}.
 Return ONLY valid JSON matching this exact schema:
 {
@@ -115,6 +117,7 @@ Rules:
       try {
         const res = await fetch("https://groq.com", {
           method: "POST",
+          mode: "cors",
           headers: {
             "Authorization": `Bearer ${key}`,
             "Content-Type": "application/json"
@@ -131,19 +134,46 @@ Rules:
         });
 
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error?.message || "Groq API request failed");
+        if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`);
 
-        const parsed = JSON.parse(data.choices[0].message.content);
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) throw new Error("Empty response from Groq.");
+
+        const parsed = JSON.parse(content);
         const tag = jurisdiction.startsWith("Texas") ? "TEXAS" : "LEONIDA";
         (parsed.charges || []).forEach(c => log.unshift({ raw: text, tag, ...c }));
         input.value = "";
         saveAndRender();
       } catch (err) {
-        errBox.textContent = `Error: ${err.message}`;
+        if (err.message === "Failed to fetch") {
+          errBox.textContent = "Network/CORS Error: Make sure you're opening this via GitHub Pages (https://) and disable any ad-blocker/VPN blocking ://groq.com.";
+        } else {
+          errBox.textContent = `Error: ${err.message}`;
+        }
       } finally {
         btn.disabled = false;
         btn.textContent = "Log Crime";
       }
+    }
+
+    function copyForChat() {
+      const btn = document.getElementById("copyBtn");
+      if (!log.length) {
+        alert("Log at least one crime first!");
+        return;
+      }
+      const fines = log.reduce((sum, c) => sum + (Number(c.fine) || 0), 0);
+      const years = log.reduce((sum, c) => sum + (Number(c.years) || 0), 0);
+      const hasDeath = log.some(c => c.death === true);
+      const latest = log[0];
+
+      const summary = `🚨 JORDAN'S RAP SHEET (${log.length} charges) | Latest: ${latest.charge} (${latest.statute}) | Total Fines: $${fines.toLocaleString()} | Prison: ${years.toFixed(1)} yrs${hasDeath ? " | ☠️ DEATH PENALTY ELIGIBLE" : ""}`;
+
+      navigator.clipboard.writeText(summary).then(() => {
+        const old = btn.textContent;
+        btn.textContent = "Copied!";
+        setTimeout(() => btn.textContent = old, 1500);
+      });
     }
 
     function deleteCharge(index) {
@@ -152,7 +182,7 @@ Rules:
     }
 
     function resetSheet() {
-      if (confirm("Clear the entire rap sheet?")) {
+      if (confirm("Clear Jordan's entire rap sheet?")) {
         log = [];
         saveAndRender();
       }
@@ -168,26 +198,8 @@ Rules:
       document.getElementById("totalJail").textContent = `${years.toFixed(1)} yrs`;
       document.getElementById("deathStatus").textContent = hasDeath ? "DEATH SENTENCE" : (years > 0 ? "Prison" : "Free");
 
-      document.getElementById("logList").innerHTML = log.map((item, idx) => `
-        <div class="charge-item">
-          <div>
-            <strong>${item.charge}</strong>
-            <div style="font-size:0.85rem; color:#94a3b8;">"${item.raw}"</div>
-            <span class="badge">${item.tag || "TX"}</span>
-            <span class="badge">${item.statute || "PENAL CODE"}</span>
-          </div>
-          <div style="text-align:right; white-space:nowrap;">
-            <div><strong>$${Number(item.fine).toLocaleString()}</strong></div>
-            <div style="font-size:0.85rem; color:#cbd5e1;">${item.years > 0 ? item.years + " yrs jail" : "No jail"}</div>
-            ${item.death ? `<div><span class="badge death">DEATH PENALTY</span></div>` : ""}
-            <button class="del" onclick="deleteCharge(${idx})">Remove</button>
-          </div>
-        </div>
-      `).join("");
-    }
-
-    document.getElementById("actionInput").addEventListener("keydown", e => { if (e.key === "Enter") logAction(); });
-    saveAndRender();
-  </script>
-</body>
-</html>
+Use code with caution.
+document.getElementById("logList").innerHTML = log.map((item, idx) => <div class="charge-item"> <div> <strong>${item.charge}</strong> <div style="font-size:0.85rem; color:#94a3b8;">"${item.raw}"</div> <span class="badge">${item.tag || "TEXAS"}</span> <span class="badge">${item.statute || "PENAL CODE"}</span> </div> <div style="text-align:right; white-space:nowrap;"> <div><strong>$${Number(item.fine).toLocaleString()}</strong></div> <div style="font-size:0.85rem; color:#cbd5e1;">${item.years > 0 ? item.years + " yrs jail" : "No jail"}</div> ${item.death ?DEATH PENALTY: ""} <button class="del" onclick="deleteCharge(${idx})">Remove</button> </div> </div>).join("");
+}
+document.getElementById("actionInput").addEventListener("keydown", e => { if (e.key === "Enter") logAction(); });
+saveAndRender();
