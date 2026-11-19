@@ -27,7 +27,7 @@
     .stat-val { font-size: 1.4rem; font-weight: 800; margin-top: 0.25rem; }
     .charge-item { background: var(--card); padding: 0.9rem 1rem; border-radius: 8px; margin-bottom: 0.6rem; display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
     .badge { font-size: 0.72rem; padding: 0.2rem 0.5rem; border-radius: 4px; background: #334155; color: var(--cyan); display: inline-block; margin-top: 0.3rem; margin-right: 0.3rem; }
-    .badge.death { background: var(--red); color: white; font-weight: bold; }
+    .badge.capital { background: var(--red); color: white; font-weight: bold; }
     .err { color: #ff6b6b; font-size: 0.85rem; margin-bottom: 1rem; line-height: 1.4; }
   </style>
 </head>
@@ -57,7 +57,7 @@
   <div class="stats">
     <div class="stat-box"><div class="stat-label">Total Fines</div><div class="stat-val" id="totalFines">$0</div></div>
     <div class="stat-box"><div class="stat-label">Prison Time</div><div class="stat-val" id="totalJail">0 yrs</div></div>
-    <div class="stat-box danger"><div class="stat-label">Sentence Status</div><div class="stat-val" id="deathStatus">Free</div></div>
+    <div class="stat-box danger"><div class="stat-label">Sentence Status</div><div class="stat-val" id="sentenceStatus">Free</div></div>
   </div>
 
   <div id="logList"></div>
@@ -78,25 +78,17 @@
     }
 
     function buildSystemPrompt(jurisdiction) {
-      return `You are a prosecutor grading actions committed by Jordan in GTA 6 under ${jurisdiction}.
-Convert the user's description into realistic criminal charges from ${jurisdiction}.
-Return ONLY valid JSON matching this exact schema:
-{
-  "charges": [
-    {
-      "charge": "Official Charge Name (or 'No Crime Committed' if completely legal)",
-      "statute": "Exact Code Citation e.g. Tex. Penal Code § 19.03 or Fla. Stat. § 782.04 (or 'N/A')",
-      "fine": 10000,
-      "years": 20,
-      "death": false
-    }
-  ]
-}
-Rules:
-- Break multi-part actions into individual criminal counts (e.g. stealing a car + fleeing police = 2 separate charges).
-- fine must be a number in USD (0 if no fine).
-- years must be a number representing max prison/jail years (use decimals like 0.5 for 180 days; 0 if no jail time; 99 for life).
-- death must be true ONLY for capital offenses eligible for the death penalty under ${jurisdiction} (such as Capital Murder of a peace officer, murder during a robbery/kidnapping/arson, or multiple murders).`;
+      return [
+        "You are a prosecutor grading actions committed by Jordan in GTA 6 under " + jurisdiction + ".",
+        "Convert the user's description into realistic criminal charges from " + jurisdiction + ".",
+        "Return ONLY valid JSON matching this exact schema:",
+        '{"charges":[{"charge":"Official Charge Name","statute":"Exact Code Citation","fine":10000,"years":20,"capital":false}]}',
+        "Rules:",
+        "- Break multi-part actions into individual criminal counts.",
+        "- fine must be a number in USD (0 if no fine).",
+        "- years must be a number representing max prison/jail years (0 if no jail time; 99 for life).",
+        "- capital must be true ONLY for capital felony offenses eligible for maximum capital punishment under " + jurisdiction + "."
+      ].join("\n");
     }
 
     async function logAction() {
@@ -108,7 +100,10 @@ Rules:
       const btn = document.getElementById("logBtn");
 
       errBox.textContent = "";
-      if (!key) { errBox.textContent = "Please paste your Groq API key first."; return; }
+      if (!key) {
+        errBox.textContent = "Please paste your Groq API key first.";
+        return;
+      }
       if (!text) return;
 
       btn.disabled = true;
@@ -119,7 +114,7 @@ Rules:
           method: "POST",
           mode: "cors",
           headers: {
-            "Authorization": `Bearer ${key}`,
+            "Authorization": "Bearer " + key,
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
@@ -134,22 +129,25 @@ Rules:
         });
 
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error?.message || `HTTP ${res.status}`);
+        if (!res.ok) {
+          throw new Error((data.error && data.error.message) || ("HTTP " + res.status));
+        }
 
-        const content = data.choices && data.choices[0] && data.choices[0].message.content;
-        if (!content) throw new Error("Empty response from Groq.");
+        const firstChoice = data.choices && data.choices.shift();
+        const content = firstChoice && firstChoice.message && firstChoice.message.content;
+        if (!content) {
+          throw new Error("Empty response from Groq.");
+        }
 
         const parsed = JSON.parse(content);
         const tag = jurisdiction.startsWith("Texas") ? "TEXAS" : "LEONIDA";
-        (parsed.charges || []).forEach(c => log.unshift({ raw: text, tag, ...c }));
+        (parsed.charges || []).forEach(function (c) {
+          log.unshift(Object.assign({ raw: text, tag: tag }, c));
+        });
         input.value = "";
         saveAndRender();
       } catch (err) {
-        if (err.message === "Failed to fetch") {
-          errBox.textContent = "Network/CORS Error: Make sure you're opening this via GitHub Pages (https://) and disable any ad-blocker/VPN blocking ://groq.com.";
-        } else {
-          errBox.textContent = `Error: ${err.message}`;
-        }
+        errBox.textContent = "Error: " + err.message;
       } finally {
         btn.disabled = false;
         btn.textContent = "Log Crime";
@@ -162,17 +160,17 @@ Rules:
         alert("Log at least one crime first!");
         return;
       }
-      const fines = log.reduce((sum, c) => sum + (Number(c.fine) || 0), 0);
-      const years = log.reduce((sum, c) => sum + (Number(c.years) || 0), 0);
-      const hasDeath = log.some(c => c.death === true);
-      const latest = log[0];
+      const fines = log.reduce(function (sum, c) { return sum + (Number(c.fine) || 0); }, 0);
+      const years = log.reduce(function (sum, c) { return sum + (Number(c.years) || 0); }, 0);
+      const hasCapital = log.some(function (c) { return c.capital === true; });
+      const latest = log.at(0);
 
-      const summary = `🚨 JORDAN'S RAP SHEET (${log.length} charges) | Latest: ${latest.charge} (${latest.statute}) | Total Fines: $${fines.toLocaleString()} | Prison: ${years.toFixed(1)} yrs${hasDeath ? " | ☠️ DEATH PENALTY ELIGIBLE" : ""}`;
+      const summary = "🚨 JORDAN'S RAP SHEET (" + log.length + " charges) | Latest: " + latest.charge + " (" + latest.statute + ") | Total Fines: $" + fines.toLocaleString() + " | Prison: " + years.toFixed(1) + " yrs" + (hasCapital ? " | ⚖️ CAPITAL FELONY" : "");
 
-      navigator.clipboard.writeText(summary).then(() => {
+      navigator.clipboard.writeText(summary).then(function () {
         const old = btn.textContent;
         btn.textContent = "Copied!";
-        setTimeout(() => btn.textContent = old, 1500);
+        setTimeout(function () { btn.textContent = old; }, 1500);
       });
     }
 
@@ -190,31 +188,37 @@ Rules:
 
     function saveAndRender() {
       localStorage.setItem("gta6_groq_rap_sheet", JSON.stringify(log));
-      const fines = log.reduce((sum, c) => sum + (Number(c.fine) || 0), 0);
-      const years = log.reduce((sum, c) => sum + (Number(c.years) || 0), 0);
-      const hasDeath = log.some(c => c.death === true);
+      const fines = log.reduce(function (sum, c) { return sum + (Number(c.fine) || 0); }, 0);
+      const years = log.reduce(function (sum, c) { return sum + (Number(c.years) || 0); }, 0);
+      const hasCapital = log.some(function (c) { return c.capital === true; });
 
-      document.getElementById("totalFines").textContent = `$${fines.toLocaleString()}`;
-      document.getElementById("totalJail").textContent = `${years.toFixed(1)} yrs`;
-      document.getElementById("deathStatus").textContent = hasDeath ? "DEATH SENTENCE" : (years > 0 ? "Prison" : "Free");
+      document.getElementById("totalFines").textContent = "$" + fines.toLocaleString();
+      document.getElementById("totalJail").textContent = years.toFixed(1) + " yrs";
+      document.getElementById("sentenceStatus").textContent = hasCapital ? "CAPITAL SENTENCE" : (years > 0 ? "Prison" : "Free");
 
-      document.getElementById("logList").innerHTML = log.map((item, idx) => `
-        <div class="charge-item">
-          <div>
-            <strong>${item.charge}</strong>
-            <div style="font-size:0.85rem; color:#94a3b8;">"${item.raw}"</div>
-            <span class="badge">${item.tag || "TEXAS"}</span>
-            <span class="badge">${item.statute || "PENAL CODE"}</span>
-          </div>
-          <div style="text-align:right; white-space:nowrap;">
-            <div><strong>$${Number(item.fine).toLocaleString()}</strong></div>
-            <div style="font-size:0.85rem; color:#cbd5e1;">${item.years > 0 ? item.years + " yrs jail" : "No jail"}</div>
-            ${item.capital ? `<div><span class="badge capital">CAPITAL FELONY</span></div>` : ""}
-            <button class="del" onclick="deleteCharge(${idx})">Remove</button>
-          </div>
-        </div>
-      `).join("");
+      document.getElementById("logList").innerHTML = log.map(function (item, idx) {
 
-document.getElementById("actionInput").addEventListener("keydown", e => { if (e.key === "Enter") logAction(); });
+const capBadge = item.capital ? 'CAPITAL FELONY' : '';
+const jailText = item.years > 0 ? (item.years + " yrs jail") : "No jail";
+return [
+'',
+'  ',
+'    ' + item.charge + '',
+'    "' + item.raw + '"',
+'    ' + (item.tag || "TEXAS") + '',
+'    ' + (item.statute || "PENAL CODE") + '',
+'  ',
+'  ',
+'    $' + Number(item.fine).toLocaleString() + '',
+'    ' + jailText + '',
+'    ' + capBadge,
+'    Remove',
+'  ',
+''
+].join("\n");
+}).join("");
+}
+document.getElementById("actionInput").addEventListener("keydown", function (e) {
+if (e.key === "Enter") logAction();
+});
 saveAndRender();
-</script>
